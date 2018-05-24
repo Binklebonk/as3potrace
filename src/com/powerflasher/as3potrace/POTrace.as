@@ -56,6 +56,8 @@
 
 		protected static const COS179:Number = Math.cos(179 * Math.PI / 180);
 		
+		private static var sPointInts:Vector.<PointInt> = new <PointInt>[];
+		
 		public function POTrace(params:POTraceParams = null, backend:IBackend = null)
 		{
 			_params = params || new POTraceParams();
@@ -132,16 +134,16 @@
 								switch(curve.kind) {
 									case CurveKind.BEZIER:
 										backend.addBezier(
-											curve.a.clone(),
-											curve.cpa.clone(),
-											curve.cpb.clone(),
-											curve.b.clone()
+											curve.a,
+											curve.cpa,
+											curve.cpb,
+											curve.b
 										);
 										break;
 									case CurveKind.LINE:
 										backend.addLine(
-											curve.a.clone(),
-											curve.b.clone()
+											curve.a,
+											curve.b
 										);
 										break;
 								}
@@ -184,7 +186,7 @@
 				for (x = 0; x < bmWidth - 1; x++) {
 					if (bitmapDataMatrix[y][x + 1] == 0) {
 						// Black found
-						return new PointInt(x, y);
+						return getPointInt(x, y);
 					}
 				}
 			}
@@ -236,13 +238,13 @@
 		private function find_path(bitmapDataMatrix:Vector.<Vector.<uint>>, start:PointInt):Path
 		{
 			var l:Vector.<PointInt> = new Vector.<PointInt>();
-			var p:PointInt = start.clone();
+			var p:PointInt = getPointInt(start.x, start.y);
 			var dir:uint = Direction.NORTH;
 			var area:int = 0;
 
 			do
 			{
-				l.push(p.clone());
+				l.push(getPointInt(p.x, p.y));
 				var _y:int = p.y;
 				dir = find_next_trace(bitmapDataMatrix, p, dir);
 				area += p.x * (_y - p.y);
@@ -257,7 +259,7 @@
 			result.area = area;
 			result.pt = new Vector.<PointInt>(l.length);
 			for (var i:int = 0; i < l.length; i++) {
-				result.pt[i] = l[i];
+				result.pt[i] = l[i];				
 			}
 			
 			// Shift 1 to be compatible with Potrace
@@ -266,7 +268,7 @@
 			}
 			
 			result.monotonIntervals = get_monoton_intervals(result.pt);
-			
+			putPointInt(p);
 			return result;
 		}
 
@@ -637,11 +639,11 @@
 			var dir:int;
 			var ct:Vector.<int> = new Vector.<int>(4);
 			var constraint:Vector.<PointInt> = new Vector.<PointInt>(2);
-			constraint[0] = new PointInt();
-			constraint[1] = new PointInt();
-			var cur:PointInt = new PointInt();
-			var off:PointInt = new PointInt();
-			var dk:PointInt = new PointInt(); // direction of k - k1
+			constraint[0] = getPointInt();
+			constraint[1] = getPointInt();
+			var cur:PointInt = getPointInt();
+			var off:PointInt = getPointInt();
+			var dk:PointInt = getPointInt(); // direction of k - k1
 			var pt:Vector.<PointInt> = path.pt;
 			
 			var n:int = pt.length;
@@ -715,12 +717,14 @@
 						off.x = cur.x + ((cur.y >= 0 && (cur.y > 0 || cur.x < 0)) ? 1 : -1);
 						off.y = cur.y + ((cur.x <= 0 && (cur.x < 0 || cur.y < 0)) ? 1 : -1);
 						if (xprod(constraint[0], off) >= 0) {
-							constraint[0] = off.clone();
+							constraint[0].x = off.x;
+							constraint[0].y = off.y;
 						}
 						off.x = cur.x + ((cur.y <= 0 && (cur.y < 0 || cur.x < 0)) ? 1 : -1);
 						off.y = cur.y + ((cur.x >= 0 && (cur.x > 0 || cur.y < 0)) ? 1 : -1);
 						if (xprod(constraint[1], off) <= 0) {
-							constraint[1] = off.clone();
+							constraint[1].x = off.x;
+							constraint[1].y = off.y;
 						}
 					}
 					
@@ -780,6 +784,12 @@
 			for (i = n - 1; cyclic(mod(i + 1, n), j, path.lon[i]); i--) {
 				path.lon[i] = j;
 			}
+			
+			putPointInt(constraint[0]);
+			putPointInt(constraint[1]);
+			putPointInt(cur);
+			putPointInt(off);
+			putPointInt(dk);
 		}
 
 		/////////////////////////////////////////////////////////////////////////
@@ -1510,8 +1520,11 @@
 						}
 						clist.push(curveList);
 					}
+					
+					var numPointInt:int = p.pt.length;
+					for (var pi:int = 0; pi < numPointInt; pi++) putPointInt(p.pt[pi]);
 				}
-			}
+			}			
 			return res;
 		}
 
@@ -1805,5 +1818,23 @@
 		{
 			return (x > 0) ? 1 : ((x < 0) ? -1 : 0);
 		}
+		
+		/** Retrieves a PointInt instance from the pool. */
+        public static function getPointInt(x:int = 0, y:int = 0):PointInt
+        {
+			if (sPointInts.length == 0) return new PointInt(x, y);
+            else
+            {
+                var point:PointInt = sPointInts.pop();
+                point.x = x; point.y = y;				
+                return point;
+            }
+        }
+
+        /** Stores a PointInt instance in the pool. */
+        public static function putPointInt(point:PointInt):void
+        {
+            if (point) sPointInts[sPointInts.length] = point;
+        }
 	}
 }
