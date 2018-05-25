@@ -1,32 +1,32 @@
 /*
-	This program is free software; you can redistribute it and/or modify it 
-	under the terms of the GNU General Public License as published by the 
-	Free Software Foundation; either version 2, or (at your option) any later
-	version.
-	
-	This program is distributed in the hope that it will be useful, but 
-	WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General
-	Public License for more details.
+   This program is free software; you can redistribute it and/or modify it
+   under the terms of the GNU General Public License as published by the
+   Free Software Foundation; either version 2, or (at your option) any later
+   version.
 
-	You should have received a copy of the GNU General Public License along
-	with this program; if not, write to the Free Software Foundation, Inc.,
-	59 Temple Place, Suite 330, Boston, MA 02111-1307, USA.
-	
-	Copyright (C) 2001-2010 Peter Selinger (Original author)
-	Copyright (C) 2009 Wolfgang Nagl (C# port of Potrace 1.8: "Vectorization")
-	Copyright (C) 2011 Claus Wahlers (AS3 port of Vectorization: "as3potrace")
-	
-	"Potrace" is a trademark of Peter Selinger. "Potrace Professional" and
-	"Icosasoft" are trademarks of Icosasoft Software Inc. Other trademarks
-	belong to their respective owners.
-	
-	http://potrace.sourceforge.net/
-	http://www.drawing3d.de/Downloads.aspx (Vectorization)
-	https://github.com/PowerflasherBR/as3potrace (as3potrace)
-*/
- 
- package com.powerflasher.as3potrace
+   This program is distributed in the hope that it will be useful, but
+   WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General
+   Public License for more details.
+
+   You should have received a copy of the GNU General Public License along
+   with this program; if not, write to the Free Software Foundation, Inc.,
+   59 Temple Place, Suite 330, Boston, MA 02111-1307, USA.
+
+   Copyright (C) 2001-2010 Peter Selinger (Original author)
+   Copyright (C) 2009 Wolfgang Nagl (C# port of Potrace 1.8: "Vectorization")
+   Copyright (C) 2011 Claus Wahlers (AS3 port of Vectorization: "as3potrace")
+
+   "Potrace" is a trademark of Peter Selinger. "Potrace Professional" and
+   "Icosasoft" are trademarks of Icosasoft Software Inc. Other trademarks
+   belong to their respective owners.
+
+   http://potrace.sourceforge.net/
+   http://www.drawing3d.de/Downloads.aspx (Vectorization)
+   https://github.com/PowerflasherBR/as3potrace (as3potrace)
+ */
+
+package com.powerflasher.as3potrace
 {
 	import com.powerflasher.as3potrace.backend.IBackend;
 	import com.powerflasher.as3potrace.backend.NullBackend;
@@ -39,9 +39,9 @@
 	import com.powerflasher.as3potrace.geom.PointInt;
 	import com.powerflasher.as3potrace.geom.PrivCurve;
 	import com.powerflasher.as3potrace.geom.SumStruct;
-
 	import flash.display.BitmapData;
 	import flash.geom.Point;
+	
 	
 	public class POTrace
 	{
@@ -53,46 +53,81 @@
 		
 		protected static const POTRACE_CORNER:int = 1;
 		protected static const POTRACE_CURVETO:int = 2;
-
-		protected static const COS179:Number = Math.cos(179 * Math.PI / 180);
 		
+		protected static const BITMAP_DATA_PADDING:int = 2;
+		protected static const COS179:Number = Math.cos(179 * Math.PI / 180);
+		protected static const POINT1x1:Point = new Point(1, 1);		
+		
+		/**
+		 * Cached to reduce GC overhead.
+		 */
+		private var bitmapDataCopy:BitmapData;	
+		
+		/**
+		 * PointInt pool to reduce GC overhead.
+		 */
 		private static var sPointInts:Vector.<PointInt> = new <PointInt>[];
+		
+		/**
+		 * Point pool to reduce GC overhead.
+		 */
+		private static var sPoints:Vector.<Point> = new <Point>[];
 		
 		public function POTrace(params:POTraceParams = null, backend:IBackend = null)
 		{
 			_params = params || new POTraceParams();
 			_backend = backend || new NullBackend();
 		}
-
-		public function get params():POTraceParams {
+		
+		public function get params():POTraceParams
+		{
 			return _params;
 		}
-		public function set params(params:POTraceParams):void {
+		
+		public function set params(params:POTraceParams):void
+		{
 			_params = params;
 		}
-
-		public function get backend():IBackend {
+		
+		public function get backend():IBackend
+		{
 			return _backend;
 		}
-		public function set backend(backend:IBackend):void {
+		
+		public function set backend(backend:IBackend):void
+		{
 			_backend = backend;
 		}
 		
-		/*
+		/**
 		 * Main function
 		 * Yields the curve informations related to a given binary bitmap.
-		 * Returns an array of curvepaths. 
+		 * Returns an array of curvepaths.
 		 * Each of this paths is a list of connecting curves.
+		 * @param	bitmapData Input BitmapData object for vector tracing.		 
+		 * @return
 		 */
 		public function potrace_trace(bitmapData:BitmapData):Array
 		{
-			// Make sure there is a 1px white border
-			var bitmapDataCopy:BitmapData = new BitmapData(bitmapData.width + 2, bitmapData.height + 2, false, 0xffffff);
-			bitmapDataCopy.threshold(bitmapData, bitmapData.rect, new Point(1, 1), params.thresholdOperator, params.threshold, 0x000000, 0xffffff, false);
+			if (bitmapDataCopy)
+			{
+				// If the incoming BitmapData dimensions differ from the cached object, dispose of it for re-creation.
+				if (bitmapData.width + BITMAP_DATA_PADDING != bmWidth || bitmapData.height + BITMAP_DATA_PADDING != bmHeight)
+				{
+					bitmapDataCopy.dispose();
+					bitmapDataCopy = null;					
+				} else {
+					bitmapDataCopy.fillRect(bitmapDataCopy.rect, 0xffffff);
+				}
+			}
 			
-			this.bmWidth = bitmapDataCopy.width;
-			this.bmHeight = bitmapDataCopy.height;
-
+			if (!bitmapDataCopy) bitmapDataCopy = new BitmapData(bitmapData.width + BITMAP_DATA_PADDING, bitmapData.height + BITMAP_DATA_PADDING, false, 0xffffff);
+			
+			bitmapDataCopy.threshold(bitmapData, bitmapData.rect, POINT1x1, params.thresholdOperator, params.threshold, 0x000000, 0xffffff, false);
+			
+			bmWidth = bitmapDataCopy.width;
+			bmHeight = bitmapDataCopy.height;
+			
 			var i:int;
 			var j:int;
 			var k:int;
@@ -101,51 +136,51 @@
 			var bitmapDataVecTmp:Vector.<uint> = bitmapDataCopy.getVector(bitmapDataCopy.rect);
 			var bitmapDataMatrix:Vector.<Vector.<uint>> = new Vector.<Vector.<uint>>(bmHeight);
 			
-			for (i = 0; i < bmHeight; i++) {
+			for (i = 0; i < bmHeight; i++)
+			{
 				var row:Vector.<uint> = bitmapDataVecTmp.slice(pos, pos + bmWidth);
-				for (j = 0; j < row.length; j++) {
+				var rowLength:int = row.length;
+				for (j = 0; j < rowLength; j++)
+				{
 					row[j] &= 0xffffff;
 				}
 				bitmapDataMatrix[i] = row;
 				pos += bmWidth;
 			}
-
+			
 			var plist:Array = bm_to_pathlist(bitmapDataMatrix);
 			
 			process_path(plist);
 			
 			var shapes:Array = pathlist_to_curvearrayslist(plist);
 			
-			if(backend != null)
+			if (backend != null)
 			{
 				backend.init(bmWidth, bmHeight);
 				
-				for (i = 0; i < shapes.length; i++) {
+				for (i = 0; i < shapes.length; i++)
+				{
 					backend.initShape();
 					var shape:Array = shapes[i] as Array;
-					for (j = 0; j < shape.length; j++) {
+					for (j = 0; j < shape.length; j++)
+					{
 						backend.initSubShape((j % 2) == 0);
 						var curves:Array = shape[j] as Array;
-						if(curves.length > 0) {
+						if (curves.length > 0)
+						{
 							var curve:Curve = curves[0] as Curve;
 							backend.moveTo(curve.a.clone());
-							for (k = 0; k < curves.length; k++) {
+							for (k = 0; k < curves.length; k++)
+							{
 								curve = curves[k] as Curve;
-								switch(curve.kind) {
-									case CurveKind.BEZIER:
-										backend.addBezier(
-											curve.a,
-											curve.cpa,
-											curve.cpb,
-											curve.b
-										);
-										break;
-									case CurveKind.LINE:
-										backend.addLine(
-											curve.a,
-											curve.b
-										);
-										break;
+								switch (curve.kind)
+								{
+								case CurveKind.BEZIER: 
+									backend.addBezier(curve.a, curve.cpa, curve.cpb, curve.b);
+									break;
+								case CurveKind.LINE: 
+									backend.addLine(curve.a, curve.b);
+									break;
 								}
 							}
 						}
@@ -155,8 +190,7 @@
 				}
 				
 				backend.exit();
-			}
-			
+			}			
 			return shapes;
 		}
 		
@@ -168,12 +202,13 @@
 		{
 			var plist:Array = [];
 			var pt:PointInt;
-			while ((pt = find_next(bitmapDataMatrix)) != null) {
+			while ((pt = find_next(bitmapDataMatrix)) != null)
+			{
 				get_contour(bitmapDataMatrix, pt, plist);
 			}
 			return plist;
 		}
-
+		
 		/*
 		 * Searches a point such that source[x, y] = true and source[x+1, y] = false.
 		 * If this not exists, null will be returned, else the result is Point(x, y).
@@ -182,9 +217,12 @@
 		{
 			var x:int;
 			var y:int;
-			for (y = 1; y < bmHeight - 1; y++) {
-				for (x = 0; x < bmWidth - 1; x++) {
-					if (bitmapDataMatrix[y][x + 1] == 0) {
+			for (y = 1; y < bmHeight - 1; y++)
+			{
+				for (x = 0; x < bmWidth - 1; x++)
+				{
+					if (bitmapDataMatrix[y][x + 1] == 0)
+					{
 						// Black found
 						return getPointInt(x, y);
 					}
@@ -192,17 +230,18 @@
 			}
 			return null;
 		}
-
+		
 		private function get_contour(bitmapDataMatrix:Vector.<Vector.<uint>>, pt:PointInt, plists:Array):void
 		{
 			var plist:Array = [];
 			
 			var path:Path = find_path(bitmapDataMatrix, pt);
-
+			
 			xor_path(bitmapDataMatrix, path);
-
+			
 			// Only area > turdsize is taken
-			if (path.area > params.turdSize) {
+			if (path.area > params.turdSize)
+			{
 				// Path with index 0 is a contour
 				plist.push(path);
 				plists.push(plist);
@@ -211,28 +250,30 @@
 			while ((pt = find_next_in_path(bitmapDataMatrix, path)) != null)
 			{
 				var hole:Path = find_path(bitmapDataMatrix, pt);
-
+				
 				xor_path(bitmapDataMatrix, hole);
 				
-				if (hole.area > params.turdSize) {
+				if (hole.area > params.turdSize)
+				{
 					// Path with index > 0 is a hole
 					plist.push(hole);
 				}
 				
-				if ((pt = find_next_in_path(bitmapDataMatrix, hole)) != null) {
+				if ((pt = find_next_in_path(bitmapDataMatrix, hole)) != null)
+				{
 					get_contour(bitmapDataMatrix, pt, plists);
 				}
 			}
 		}
-
+		
 		/*
 		 * Compute a path in the binary matrix.
-		 * 
+		 *
 		 * Start path at the point (x0,x1), which must be an upper left corner
 		 * of the path. Also compute the area enclosed by the path. Return a
 		 * new path_t object, or NULL on error (note that a legitimate path
 		 * cannot have length 0).
-		 * 
+		 *
 		 * We omit turnpolicies and sign
 		 */
 		private function find_path(bitmapDataMatrix:Vector.<Vector.<uint>>, start:PointInt):Path
@@ -241,29 +282,31 @@
 			var p:PointInt = getPointInt(start.x, start.y);
 			var dir:uint = Direction.NORTH;
 			var area:int = 0;
-
+			
 			do
 			{
 				l.push(getPointInt(p.x, p.y));
 				var _y:int = p.y;
 				dir = find_next_trace(bitmapDataMatrix, p, dir);
 				area += p.x * (_y - p.y);
-			}
-			while ((p.x != start.x) || (p.y != start.y));
+			} while ((p.x != start.x) || (p.y != start.y));
 			
-			if (l.length == 0) {
+			if (l.length == 0)
+			{
 				return null;
 			}
 			
 			var result:Path = new Path();
 			result.area = area;
 			result.pt = new Vector.<PointInt>(l.length);
-			for (var i:int = 0; i < l.length; i++) {
-				result.pt[i] = l[i];				
+			for (var i:int = 0; i < l.length; i++)
+			{
+				result.pt[i] = l[i];
 			}
 			
 			// Shift 1 to be compatible with Potrace
-			if(result.pt.length > 1) {
+			if (result.pt.length > 1)
+			{
 				result.pt.unshift(result.pt.pop());
 			}
 			
@@ -271,31 +314,32 @@
 			putPointInt(p);
 			return result;
 		}
-
+		
 		/*
 		 * Searches a point inside a path such that source[x, y] = true and source[x+1, y] = false.
 		 * If this not exists, null will be returned, else the result is Point(x, y).
 		 */
 		private function find_next_in_path(bitmapDataMatrix:Vector.<Vector.<uint>>, path:Path):PointInt
 		{
-			if (path.monotonIntervals.length == 0) {
+			if (path.monotonIntervals.length == 0)
+			{
 				return null;
 			}
 			
 			var i:int = 0;
 			var n:int = path.pt.length;
-
+			
 			var mis:Vector.<MonotonInterval> = path.monotonIntervals;
 			var mi:MonotonInterval = mis[0];
 			mi.resetCurrentId(n);
 			
 			var y:int = path.pt[mi.currentId].y;
-
+			
 			var currentIntervals:Vector.<MonotonInterval> = new Vector.<MonotonInterval>();
 			currentIntervals[0] = mi;
-
+			
 			mi.currentId = mi.min();
-
+			
 			while ((mis.length > i + 1) && (mis[i + 1].minY(path.pt) == y))
 			{
 				mi = mis[i + 1];
@@ -312,8 +356,10 @@
 				{
 					var x1:int = path.pt[currentIntervals[k].currentId].x + 1;
 					var x2:int = path.pt[currentIntervals[k + 1].currentId].x;
-					for (var x:int = x1; x <= x2; x++) {
-						if (bitmapDataMatrix[y][x] == 0) {
+					for (var x:int = x1; x <= x2; x++)
+					{
+						if (bitmapDataMatrix[y][x] == 0)
+						{
 							return new PointInt(x - 1, y);
 						}
 					}
@@ -324,7 +370,8 @@
 				for (j = currentIntervals.length - 1; j >= 0; j--)
 				{
 					var m:MonotonInterval = currentIntervals[j];
-					if (y > m.maxY(path.pt)) {
+					if (y > m.maxY(path.pt))
+					{
 						currentIntervals.splice(j, 1);
 						continue;
 					}
@@ -332,8 +379,7 @@
 					do
 					{
 						cid = m.increasing ? mod(cid + 1, n) : mod(cid - 1, n);
-					}
-					while (path.pt[cid].y < y);
+					} while (path.pt[cid].y < y);
 					m.currentId = cid;
 				}
 				
@@ -344,7 +390,8 @@
 					// Search the correct x position
 					j = 0;
 					var _x:int = path.pt[newInt.min()].x;
-					while ((currentIntervals.length > j) && (_x > path.pt[currentIntervals[j].currentId].x)) {
+					while ((currentIntervals.length > j) && (_x > path.pt[currentIntervals[j].currentId].x))
+					{
 						j++;
 					}
 					currentIntervals.splice(j, 0, newInt);
@@ -354,16 +401,17 @@
 			}
 			return null;
 		}
-
+		
 		private function xor_path(bitmapDataMatrix:Vector.<Vector.<uint>>, path:Path):void
 		{
-			if (path.monotonIntervals.length == 0) {
+			if (path.monotonIntervals.length == 0)
+			{
 				return;
 			}
 			
 			var i:int = 0;
 			var n:int = path.pt.length;
-
+			
 			var mis:Vector.<MonotonInterval> = path.monotonIntervals;
 			var mi:MonotonInterval = mis[0];
 			mi.resetCurrentId(n);
@@ -371,9 +419,9 @@
 			var y:int = path.pt[mi.currentId].y;
 			var currentIntervals:Vector.<MonotonInterval> = new Vector.<MonotonInterval>();
 			currentIntervals.push(mi);
-
+			
 			mi.currentId = mi.min();
-
+			
 			while ((mis.length > i + 1) && (mis[i + 1].minY(path.pt) == y))
 			{
 				mi = mis[i + 1];
@@ -390,7 +438,8 @@
 				{
 					var x1:int = path.pt[currentIntervals[k].currentId].x + 1;
 					var x2:int = path.pt[currentIntervals[k + 1].currentId].x;
-					for (var x:int = x1; x <= x2; x++) {
+					for (var x:int = x1; x <= x2; x++)
+					{
 						// Invert pixel
 						bitmapDataMatrix[y][x] ^= 0xffffff;
 					}
@@ -401,7 +450,8 @@
 				for (j = currentIntervals.length - 1; j >= 0; j--)
 				{
 					var m:MonotonInterval = currentIntervals[j];
-					if (y > m.maxY(path.pt)) {
+					if (y > m.maxY(path.pt))
+					{
 						currentIntervals.splice(j, 1);
 						continue;
 					}
@@ -409,8 +459,7 @@
 					do
 					{
 						cid = m.increasing ? mod(cid + 1, n) : mod(cid - 1, n);
-					}
-					while (path.pt[cid].y < y);
+					} while (path.pt[cid].y < y);
 					m.currentId = cid;
 				}
 				
@@ -421,7 +470,8 @@
 					// Search the correct x position
 					j = 0;
 					var _x:int = path.pt[newInt.min()].x;
-					while ((currentIntervals.length > j) && (_x > path.pt[currentIntervals[j].currentId].x)) {
+					while ((currentIntervals.length > j) && (_x > path.pt[currentIntervals[j].currentId].x))
+					{
 						j++;
 					}
 					currentIntervals.splice(j, 0, newInt);
@@ -430,12 +480,13 @@
 				}
 			}
 		}
-
+		
 		private function get_monoton_intervals(pt:Vector.<PointInt>):Vector.<MonotonInterval>
 		{
 			var result:Vector.<MonotonInterval> = new Vector.<MonotonInterval>();
 			var n:uint = pt.length;
-			if (n == 0) {
+			if (n == 0)
+			{
 				return result;
 			}
 			
@@ -443,10 +494,11 @@
 			
 			// Start with Strong Monoton (Pts[i].y < Pts[i+1].y) or (Pts[i].y > Pts[i+1].y)
 			var firstStrongMonoton:int = 0;
-			while (pt[firstStrongMonoton].y == pt[firstStrongMonoton + 1].y) {
+			while (pt[firstStrongMonoton].y == pt[firstStrongMonoton + 1].y)
+			{
 				firstStrongMonoton++;
 			}
-
+			
 			var i:int = firstStrongMonoton;
 			var up:Boolean = (pt[firstStrongMonoton].y < pt[firstStrongMonoton + 1].y);
 			var interval:MonotonInterval = new MonotonInterval(up, firstStrongMonoton, firstStrongMonoton);
@@ -454,19 +506,22 @@
 			
 			do
 			{
-				var i1n:int = mod(i + 1, n); 
-				if ((pt[i].y == pt[i1n].y) || (up == (pt[i].y < pt[i1n].y))) {
+				var i1n:int = mod(i + 1, n);
+				if ((pt[i].y == pt[i1n].y) || (up == (pt[i].y < pt[i1n].y)))
+				{
 					interval.to = i;
-				} else {
+				}
+				else
+				{
 					up = (pt[i].y < pt[i1n].y);
 					interval = new MonotonInterval(up, i, i);
 					intervals.push(interval);
 				}
 				i = i1n;
-			}
-			while (i != firstStrongMonoton);
+			} while (i != firstStrongMonoton);
 			
-			if ((intervals.length & 1) == 1) {
+			if ((intervals.length & 1) == 1)
+			{
 				var last:MonotonInterval = intervals.pop();
 				intervals[0].from = last.from;
 			}
@@ -475,10 +530,12 @@
 			{
 				i = 0;
 				var m:MonotonInterval = intervals.shift();
-				while ((i < result.length) && (pt[m.min()].y > pt[result[i].min()].y)) {
+				while ((i < result.length) && (pt[m.min()].y > pt[result[i].min()].y))
+				{
 					i++;
 				}
-				while ((i < result.length) && (pt[m.min()].y == pt[result[i].min()].y) && (pt[m.min()].x > pt[result[i].min()].x)) {
+				while ((i < result.length) && (pt[m.min()].y == pt[result[i].min()].y) && (pt[m.min()].x > pt[result[i].min()].x))
+				{
 					i++;
 				}
 				result.splice(i, 0, m);
@@ -486,101 +543,130 @@
 			
 			return result;
 		}
-
+		
 		private function find_next_trace(bitmapDataMatrix:Vector.<Vector.<uint>>, p:PointInt, dir:uint):uint
 		{
-			switch(dir)
+			switch (dir)
 			{
-				case Direction.WEST:
-					if (bitmapDataMatrix[p.y + 1][p.x + 1] == 0) {
-						dir = Direction.NORTH;
-						p.y++;
-					} else {
-						if (bitmapDataMatrix[p.y][p.x + 1] == 0) {
-							dir = Direction.WEST;
-							p.x++;
-						} else {
-							dir = Direction.SOUTH;
-							p.y--;
-						}
-					}
-					break;
-					
-				case Direction.SOUTH:
-					if (bitmapDataMatrix[p.y][p.x + 1] == 0) {
+			case Direction.WEST: 
+				if (bitmapDataMatrix[p.y + 1][p.x + 1] == 0)
+				{
+					dir = Direction.NORTH;
+					p.y++;
+				}
+				else
+				{
+					if (bitmapDataMatrix[p.y][p.x + 1] == 0)
+					{
 						dir = Direction.WEST;
 						p.x++;
-					} else {
-						if (bitmapDataMatrix[p.y][p.x] == 0) {
-							dir = Direction.SOUTH;
-							p.y--;
-						} else {
-							dir = Direction.EAST;
-							p.x--;
-						}
 					}
-					break;
-					
-				case Direction.EAST:
-					if (bitmapDataMatrix[p.y][p.x] == 0) {
+					else
+					{
 						dir = Direction.SOUTH;
 						p.y--;
-					} else {
-						if (bitmapDataMatrix[p.y + 1][p.x] == 0) {
-							dir = Direction.EAST;
-							p.x--;
-						} else {
-							dir = Direction.NORTH;
-							p.y++;
-						}
 					}
-					break;
-					
-				case Direction.NORTH:
-					if (bitmapDataMatrix[p.y + 1][p.x] == 0) {
+				}
+				break;
+			
+			case Direction.SOUTH: 
+				if (bitmapDataMatrix[p.y][p.x + 1] == 0)
+				{
+					dir = Direction.WEST;
+					p.x++;
+				}
+				else
+				{
+					if (bitmapDataMatrix[p.y][p.x] == 0)
+					{
+						dir = Direction.SOUTH;
+						p.y--;
+					}
+					else
+					{
 						dir = Direction.EAST;
 						p.x--;
-					} else {
-						if (bitmapDataMatrix[p.y + 1][p.x + 1] == 0) {
-							dir = Direction.NORTH;
-							p.y++;
-						} else {
-							dir = Direction.WEST;
-							p.x++;
-						}
 					}
-					break;
+				}
+				break;
+			
+			case Direction.EAST: 
+				if (bitmapDataMatrix[p.y][p.x] == 0)
+				{
+					dir = Direction.SOUTH;
+					p.y--;
+				}
+				else
+				{
+					if (bitmapDataMatrix[p.y + 1][p.x] == 0)
+					{
+						dir = Direction.EAST;
+						p.x--;
+					}
+					else
+					{
+						dir = Direction.NORTH;
+						p.y++;
+					}
+				}
+				break;
+			
+			case Direction.NORTH: 
+				if (bitmapDataMatrix[p.y + 1][p.x] == 0)
+				{
+					dir = Direction.EAST;
+					p.x--;
+				}
+				else
+				{
+					if (bitmapDataMatrix[p.y + 1][p.x + 1] == 0)
+					{
+						dir = Direction.NORTH;
+						p.y++;
+					}
+					else
+					{
+						dir = Direction.WEST;
+						p.x++;
+					}
+				}
+				break;
 			}
 			return dir;
 		}
-
+		
 		private function process_path(plists:Array):void
 		{
 			// call downstream function with each path
-			for (var j:int = 0; j < plists.length; j++) {
+			for (var j:int = 0; j < plists.length; j++)
+			{
 				var plist:Array = plists[j] as Array;
-				for (var i:int = 0; i < plist.length; i++) {
+				for (var i:int = 0; i < plist.length; i++)
+				{
 					var path:Path = plist[i] as Path;
 					calc_sums(path);
 					calc_lon(path);
 					bestpolygon(path);
 					adjust_vertices(path);
 					smooth(path.curves, 1, params.alphaMax);
-					if (params.curveOptimizing) {
+					if (params.curveOptimizing)
+					{
 						opticurve(path, params.optTolerance);
 						path.fCurves = path.optimizedCurves;
-					} else {
+					}
+					else
+					{
 						path.fCurves = path.curves;
 					}
 					path.curves = path.fCurves;
 				}
 			}
 		}
-
+		
 		/////////////////////////////////////////////////////////////////////////
 		// PREPARATION
 		/////////////////////////////////////////////////////////////////////////
-
+		
 		/*
 		 * Fill in the sum* fields of a path (used for later rapid summing)
 		 */
@@ -598,34 +684,35 @@
 			ss.x2 = ss.xy = ss.y2 = ss.x = ss.y = 0;
 			path.sums[0] = ss;
 			
-			for (var i:int = 0; i < n; i++) {
+			for (var i:int = 0; i < n; i++)
+			{
 				var x:int = path.pt[i].x - x0;
 				var y:int = path.pt[i].y - y0;
 				ss = new SumStruct();
-				ss.x = path.sums[i].x + x; 
-				ss.y = path.sums[i].y + y; 
-				ss.x2 = path.sums[i].x2 + x * x; 
-				ss.xy = path.sums[i].xy + x * y; 
-				ss.y2 = path.sums[i].y2 + y * y; 
+				ss.x = path.sums[i].x + x;
+				ss.y = path.sums[i].y + y;
+				ss.x2 = path.sums[i].x2 + x * x;
+				ss.xy = path.sums[i].xy + x * y;
+				ss.y2 = path.sums[i].y2 + y * y;
 				path.sums[i + 1] = ss;
 			}
 		}
-
+		
 		/////////////////////////////////////////////////////////////////////////
 		// STAGE 1
 		// determine the straight subpaths (Sec. 2.2.1).
 		/////////////////////////////////////////////////////////////////////////
-
+		
 		/*
 		 * Fill in the "lon" component of a path object (based on pt/len).
-		 * For each i, lon[i] is the furthest index such that a straight line 
+		 * For each i, lon[i] is the furthest index such that a straight line
 		 * can be drawn from i to lon[i].
-		 * 
+		 *
 		 * This algorithm depends on the fact that the existence of straight
 		 * subpaths is a triplewise property. I.e., there exists a straight
 		 * line through squares i0,...,in if there exists a straight line
 		 * through i,j,k, for all i0 <= i < j < k <= in. (Proof?)
-		 */ 
+		 */
 		private function calc_lon(path:Path):void
 		{
 			var i:int;
@@ -661,7 +748,8 @@
 			k = 0;
 			for (i = n - 1; i >= 0; i--)
 			{
-				if (pt[i].x != pt[k].x && pt[i].y != pt[k].y) {
+				if (pt[i].x != pt[k].x && pt[i].y != pt[k].y)
+				{
 					k = i + 1; // necessarily i < n-1 in this case
 				}
 				nc[i] = k;
@@ -697,7 +785,8 @@
 					ct[dir]++;
 					
 					// If all four "directions" have occurred, cut this path
-					if ((ct[0] >= 1) && (ct[1] >= 1) && (ct[2] >= 1) && (ct[3] >= 1)) {
+					if ((ct[0] >= 1) && (ct[1] >= 1) && (ct[2] >= 1) && (ct[3] >= 1))
+					{
 						pivot[i] = k1;
 						foundk = true;
 						break;
@@ -707,22 +796,28 @@
 					cur.y = pt[k].y - pt[i].y;
 					
 					// See if current constraint is violated
-					if (xprod(constraint[0], cur) < 0 || xprod(constraint[1], cur) > 0) {
+					if (xprod(constraint[0], cur) < 0 || xprod(constraint[1], cur) > 0)
+					{
 						break;
 					}
 					
-					if (abs(cur.x) <= 1 && abs(cur.y) <= 1) {
+					if (abs(cur.x) <= 1 && abs(cur.y) <= 1)
+					{
 						// no constraint
-					} else {
+					}
+					else
+					{
 						off.x = cur.x + ((cur.y >= 0 && (cur.y > 0 || cur.x < 0)) ? 1 : -1);
 						off.y = cur.y + ((cur.x <= 0 && (cur.x < 0 || cur.y < 0)) ? 1 : -1);
-						if (xprod(constraint[0], off) >= 0) {
+						if (xprod(constraint[0], off) >= 0)
+						{
 							constraint[0].x = off.x;
 							constraint[0].y = off.y;
 						}
 						off.x = cur.x + ((cur.y <= 0 && (cur.y < 0 || cur.x < 0)) ? 1 : -1);
 						off.y = cur.y + ((cur.x >= 0 && (cur.x > 0 || cur.y < 0)) ? 1 : -1);
-						if (xprod(constraint[1], off) <= 0) {
+						if (xprod(constraint[1], off) <= 0)
+						{
 							constraint[1].x = off.x;
 							constraint[1].y = off.y;
 						}
@@ -730,12 +825,14 @@
 					
 					k1 = k;
 					k = nc[k1];
-					if (!cyclic(k, i, k1)) {
+					if (!cyclic(k, i, k1))
+					{
 						break;
 					}
 				}
 				
-				if(foundk) {
+				if (foundk)
+				{
 					continue;
 				}
 				
@@ -754,14 +851,16 @@
 				b = xprod(constraint[0], dk);
 				c = xprod(constraint[1], cur);
 				d = xprod(constraint[1], dk);
-
+				
 				// find largest integer j such that a+j*b >= 0 and c+j*d <= 0. This
 				// can be solved with integer arithmetic.
 				j = int.MAX_VALUE;
-				if (b < 0) {
+				if (b < 0)
+				{
 					j = floordiv(a, -b);
 				}
-				if (d > 0) {
+				if (d > 0)
+				{
 					j = min(j, floordiv(-c, d));
 				}
 				pivot[i] = mod(k1 + j, n);
@@ -774,14 +873,17 @@
 			j = pivot[n - 1];
 			path.lon[n - 1] = j;
 			
-			for (i = n - 2; i >= 0; i--) {
-				if (cyclic(i + 1, pivot[i], j)) {
+			for (i = n - 2; i >= 0; i--)
+			{
+				if (cyclic(i + 1, pivot[i], j))
+				{
 					j = pivot[i];
 				}
 				path.lon[i] = j;
 			}
 			
-			for (i = n - 1; cyclic(mod(i + 1, n), j, path.lon[i]); i--) {
+			for (i = n - 1; cyclic(mod(i + 1, n), j, path.lon[i]); i--)
+			{
 				path.lon[i] = j;
 			}
 			
@@ -791,13 +893,13 @@
 			putPointInt(off);
 			putPointInt(dk);
 		}
-
+		
 		/////////////////////////////////////////////////////////////////////////
 		// STAGE 2
 		// Calculate the optimal polygon (Sec. 2.2.2 - 2.2.4).
 		/////////////////////////////////////////////////////////////////////////
-
-		/* 
+		
+		/*
 		 * Auxiliary function: calculate the penalty of an edge from i to j in
 		 * the given path. This needs the "lon" and "sum*" data.
 		 */
@@ -808,32 +910,33 @@
 			// assume 0 <= i < j <= n
 			var sums:Vector.<SumStruct> = path.sums;
 			var pt:Vector.<PointInt> = path.pt;
-
+			
 			var r:int = 0; // rotations from i to j
-			if (j >= n) {
+			if (j >= n)
+			{
 				j -= n;
 				r++;
 			}
-
+			
 			var x:Number = sums[j + 1].x - sums[i].x + r * sums[n].x;
 			var y:Number = sums[j + 1].y - sums[i].y + r * sums[n].y;
 			var x2:Number = sums[j + 1].x2 - sums[i].x2 + r * sums[n].x2;
 			var xy:Number = sums[j + 1].xy - sums[i].xy + r * sums[n].xy;
 			var y2:Number = sums[j + 1].y2 - sums[i].y2 + r * sums[n].y2;
 			var k:Number = j + 1 - i + r * n;
-
+			
 			var px:Number = (pt[i].x + pt[j].x) / 2.0 - pt[0].x;
 			var py:Number = (pt[i].y + pt[j].y) / 2.0 - pt[0].y;
 			var ey:Number = (pt[j].x - pt[i].x);
 			var ex:Number = -(pt[j].y - pt[i].y);
-
+			
 			var a:Number = ((x2 - 2 * x * px) / k + px * px);
 			var b:Number = ((xy - x * py - y * px) / k + px * py);
 			var c:Number = ((y2 - 2 * y * py) / k + py * py);
-
+			
 			return Math.sqrt(ex * ex * a + 2 * ex * ey * b + ey * ey * c);
 		}
-
+		
 		/*
 		 * Find the optimal polygon.
 		 */
@@ -856,9 +959,11 @@
 			var c:int;
 			
 			// Calculate clipped paths
-			for (i = 0; i < n; i++) {
+			for (i = 0; i < n; i++)
+			{
 				c = mod(path.lon[mod(i - 1, n)] - 1, n);
-				if (c == i) {
+				if (c == i)
+				{
 					c = mod(i + 1, n);
 				}
 				clip0[i] = (c < i) ? n : c;
@@ -867,8 +972,10 @@
 			// calculate backwards path clipping, non-cyclic. 
 			// j <= clip0[i] iff clip1[j] <= i, for i,j = 0..n
 			j = 1;
-			for (i = 0; i < n; i++) {
-				while (j <= clip0[i]) {
+			for (i = 0; i < n; i++)
+			{
+				while (j <= clip0[i])
+				{
 					clip1[j] = i;
 					j++;
 				}
@@ -876,7 +983,8 @@
 			
 			// calculate seg0[j] = longest path from 0 with j segments
 			i = 0;
-			for (j = 0; i < n; j++) {
+			for (j = 0; i < n; j++)
+			{
 				seg0[j] = i;
 				i = clip0[i];
 			}
@@ -885,7 +993,8 @@
 			// calculate seg1[j] = longest path to n with m-j segments
 			i = n;
 			m = j;
-			for (j = m; j > 0; j--) {
+			for (j = m; j > 0; j--)
+			{
 				seg1[j] = i;
 				i = clip1[i];
 			}
@@ -896,12 +1005,16 @@
 			// the worst-case behavior here is quadratic. In practice, it is
 			// close to linear since the inner loop tends to be short.
 			pen[0] = 0;
-			for (j = 1; j <= m; j++) {
-				for (i = seg1[j]; i <= seg0[j]; i++) {
+			for (j = 1; j <= m; j++)
+			{
+				for (i = seg1[j]; i <= seg0[j]; i++)
+				{
 					best = -1;
-					for (k = seg0[j - 1]; k >= clip1[i]; k--) {
+					for (k = seg0[j - 1]; k >= clip1[i]; k--)
+					{
 						thispen = penalty3(path, k, i) + pen[k];
-						if (best < 0 || thispen < best) {
+						if (best < 0 || thispen < best)
+						{
 							prev[i] = k;
 							best = thispen;
 						}
@@ -912,17 +1025,18 @@
 			
 			// read off shortest path
 			path.po = new Vector.<int>(m);
-			for (i = n, j = m - 1; i > 0; j--) {
+			for (i = n, j = m - 1; i > 0; j--)
+			{
 				i = prev[i];
 				path.po[j] = i;
 			}
 		}
-
+		
 		/////////////////////////////////////////////////////////////////////////
 		// STAGE 3
 		// Vertex adjustment (Sec. 2.3.1).
 		/////////////////////////////////////////////////////////////////////////
-
+		
 		/*
 		 * Adjust vertices of optimal polygon: calculate the intersection of
 		 * the two "optimal" line segments, then move it into the unit square
@@ -935,7 +1049,7 @@
 			
 			var n:int = pt.length;
 			var m:int = po.length;
-
+			
 			var x0:int = pt[0].x;
 			var y0:int = pt[0].y;
 			
@@ -943,7 +1057,7 @@
 			var j:int;
 			var k:int;
 			var l:int;
-
+			
 			var d:Number;
 			var v:Vector.<Number> = new Vector.<Number>(3);
 			var q:Vector.<Vector.<Vector.<Number>>> = new Vector.<Vector.<Vector.<Number>>>(m);
@@ -951,21 +1065,24 @@
 			var ctr:Vector.<Point> = new Vector.<Point>(m);
 			var dir:Vector.<Point> = new Vector.<Point>(m);
 			
-			for (i = 0; i < m; i++) {
+			for (i = 0; i < m; i++)
+			{
 				q[i] = new Vector.<Vector.<Number>>(3);
-				for (j = 0; j < 3; j++) {
+				for (j = 0; j < 3; j++)
+				{
 					q[i][j] = new Vector.<Number>(3);
 				}
-				ctr[i] = new Point();
-				dir[i] = new Point();
+				ctr[i] = getPoint();
+				dir[i] = getPoint();
 			}
 			
-			var s:Point = new Point();
+			var s:Point = getPoint();
 			
 			path.curves = new PrivCurve(m);
 			
 			// calculate "optimal" point-slope representation for each line segment
-			for (i = 0; i < m; i++) {
+			for (i = 0; i < m; i++)
+			{
 				j = po[mod(i + 1, m)];
 				j = mod(j - po[i], n) + po[i];
 				pointslope(path, po[i], j, ctr[i], dir[i]);
@@ -974,20 +1091,28 @@
 			// represent each line segment as a singular quadratic form;
 			// the distance of a point (x,y) from the line segment will be
 			// (x,y,1)Q(x,y,1)^t, where Q=q[i]
-			for (i = 0; i < m; i++) {
+			for (i = 0; i < m; i++)
+			{
 				d = dir[i].x * dir[i].x + dir[i].y * dir[i].y;
-				if (d == 0) {
-					for (j = 0; j < 3; j++) {
-						for (k = 0; k < 3; k++) {
+				if (d == 0)
+				{
+					for (j = 0; j < 3; j++)
+					{
+						for (k = 0; k < 3; k++)
+						{
 							q[i][j][k] = 0;
 						}
 					}
-				} else {
+				}
+				else
+				{
 					v[0] = dir[i].y;
 					v[1] = -dir[i].x;
 					v[2] = -v[1] * ctr[i].y - v[0] * ctr[i].x;
-					for (l = 0; l < 3; l++) {
-						for (k = 0; k < 3; k++) {
+					for (l = 0; l < 3; l++)
+					{
+						for (k = 0; k < 3; k++)
+						{
 							q[i][l][k] = v[l] * v[k] / d;
 						}
 					}
@@ -1001,7 +1126,7 @@
 			for (i = 0; i < m; i++)
 			{
 				var Q:Vector.<Vector.<Number>> = new Vector.<Vector.<Number>>(3);
-				var w:Point = new Point();
+				var w:Point = getPoint();
 				var dx:Number;
 				var dy:Number;
 				var det:Number;
@@ -1010,8 +1135,9 @@
 				var xmin:Number; // coordinate of minimum
 				var ymin:Number; // coordinate of minimum
 				var z:int;
-
-				for (j = 0; j < 3; j++) {
+				
+				for (j = 0; j < 3; j++)
+				{
 					Q[j] = new Vector.<Number>(3);
 				}
 				
@@ -1023,8 +1149,10 @@
 				j = mod(i - 1, m);
 				
 				// add quadratic forms
-				for (l = 0; l < 3; l++) {
-					for (k = 0; k < 3; k++) {
+				for (l = 0; l < 3; l++)
+				{
+					for (k = 0; k < 3; k++)
+					{
 						Q[l][k] = q[j][l][k] + q[i][l][k];
 					}
 				}
@@ -1034,7 +1162,8 @@
 					/* minimize the quadratic form Q on the unit square */
 					/* find intersection */
 					det = Q[0][0] * Q[1][1] - Q[0][1] * Q[1][0];
-					if (det != 0) {
+					if (det != 0)
+					{
 						w.x = (-Q[0][2] * Q[1][1] + Q[1][2] * Q[0][1]) / det;
 						w.y = (Q[0][2] * Q[1][0] - Q[1][2] * Q[0][0]) / det;
 						break;
@@ -1042,21 +1171,28 @@
 					
 					// matrix is singular - lines are parallel. Add another,
 					// orthogonal axis, through the center of the unit square
-					if (Q[0][0] > Q[1][1]) {
+					if (Q[0][0] > Q[1][1])
+					{
 						v[0] = -Q[0][1];
 						v[1] = Q[0][0];
-					} else if (Q[1][1] != 0) {
+					}
+					else if (Q[1][1] != 0)
+					{
 						v[0] = -Q[1][1];
 						v[1] = Q[1][0];
-					} else {
+					}
+					else
+					{
 						v[0] = 1;
 						v[1] = 0;
 					}
 					
 					d = v[0] * v[0] + v[1] * v[1];
 					v[2] = -v[1] * s.y - v[0] * s.x;
-					for (l = 0; l < 3; l++) {
-						for (k = 0; k < 3; k++) {
+					for (l = 0; l < 3; l++)
+					{
+						for (k = 0; k < 3; k++)
+						{
 							Q[l][k] += v[l] * v[k] / d;
 						}
 					}
@@ -1064,7 +1200,8 @@
 				
 				dx = Math.abs(w.x - s.x);
 				dy = Math.abs(w.y - s.y);
-				if (dx <= 0.5 && dy <= 0.5) {
+				if (dx <= 0.5 && dy <= 0.5)
+				{
 					// - 1 because we have a additional border set to the bitmap
 					path.curves.vertex[i] = new Point(w.x + x0, w.y + y0);
 					continue;
@@ -1076,14 +1213,17 @@
 				xmin = s.x;
 				ymin = s.y;
 				
-				if (Q[0][0] != 0) {
-					for (z = 0; z < 2; z++) {
+				if (Q[0][0] != 0)
+				{
+					for (z = 0; z < 2; z++)
+					{
 						// value of the y-coordinate
 						w.y = s.y - 0.5 + z;
 						w.x = -(Q[0][1] * w.y + Q[0][2]) / Q[0][0];
 						dx = Math.abs(w.x - s.x);
 						cand = quadform(Q, w);
-						if (dx <= 0.5 && cand < min) {
+						if (dx <= 0.5 && cand < min)
+						{
 							min = cand;
 							xmin = w.x;
 							ymin = w.y;
@@ -1091,7 +1231,8 @@
 					}
 				}
 				
-				if (Q[1][1] != 0) {
+				if (Q[1][1] != 0)
+				{
 					for (z = 0; z < 2; z++)
 					{
 						// value of the x-coordinate
@@ -1099,7 +1240,8 @@
 						w.y = -(Q[1][0] * w.x + Q[1][2]) / Q[1][1];
 						dy = Math.abs(w.y - s.y);
 						cand = quadform(Q, w);
-						if (dy <= 0.5 && cand < min) {
+						if (dy <= 0.5 && cand < min)
+						{
 							min = cand;
 							xmin = w.x;
 							ymin = w.y;
@@ -1108,12 +1250,15 @@
 				}
 				
 				// check four corners
-				for (l = 0; l < 2; l++) {
-					for (k = 0; k < 2; k++) {
+				for (l = 0; l < 2; l++)
+				{
+					for (k = 0; k < 2; k++)
+					{
 						w.x = s.x - 0.5 + l;
 						w.y = s.y - 0.5 + k;
 						cand = quadform(Q, w);
-						if (cand < min) {
+						if (cand < min)
+						{
 							min = cand;
 							xmin = w.x;
 							ymin = w.y;
@@ -1123,15 +1268,20 @@
 				
 				// - 1 because we have a additional border set to the bitmap
 				path.curves.vertex[i] = new Point(xmin + x0 - 1, ymin + y0 - 1);
-				continue;
+				putPoint(w);
+				continue;				
 			}
+			
+			for (var numCTR:int = 0; numCTR < ctr.length; numCTR++) putPoint(ctr[numCTR]);
+			for (var numDIR:int = 0; numDIR < dir.length; numDIR++ ) putPoint(dir[numDIR]);
+			putPoint(s);
 		}
-
+		
 		/////////////////////////////////////////////////////////////////////////
 		// STAGE 4
 		// Smoothing and corner analysis (Sec. 2.3.3).
 		/////////////////////////////////////////////////////////////////////////
-
+		
 		private function smooth(curve:PrivCurve, sign:int, alphaMax:Number):void
 		{
 			var m:int = curve.n;
@@ -1147,9 +1297,11 @@
 			var p3:Point;
 			var p4:Point;
 			
-			if (sign < 0) {
+			if (sign < 0)
+			{
 				/* reverse orientation of negative paths */
-				for (i = 0, j = m - 1; i < j; i++, j--) {
+				for (i = 0, j = m - 1; i < j; i++, j--)
+				{
 					var tmp:Point = curve.vertex[i];
 					curve.vertex[i] = curve.vertex[j];
 					curve.vertex[j] = tmp;
@@ -1164,27 +1316,36 @@
 				p4 = interval(1 / 2.0, curve.vertex[k], curve.vertex[j]);
 				
 				denom = ddenom(curve.vertex[i], curve.vertex[k]);
-				if (denom != 0) {
+				if (denom != 0)
+				{
 					dd = dpara(curve.vertex[i], curve.vertex[j], curve.vertex[k]) / denom;
 					dd = Math.abs(dd);
 					alpha = (dd > 1) ? (1 - 1.0 / dd) : 0;
 					alpha = alpha / 0.75;
-				} else {
+				}
+				else
+				{
 					alpha = 4 / 3;
 				}
 				
 				// remember "original" value of alpha */
 				curve.alpha0[j] = alpha;
-				  
-				if (alpha > alphaMax) {
+				
+				if (alpha > alphaMax)
+				{
 					// pointed corner
 					curve.tag[j] = POTRACE_CORNER;
 					curve.controlPoints[j][1] = curve.vertex[j];
 					curve.controlPoints[j][2] = p4;
-				} else {
-					if (alpha < 0.55) {
+				}
+				else
+				{
+					if (alpha < 0.55)
+					{
 						alpha = 0.55;
-					} else if (alpha > 1) {
+					}
+					else if (alpha > 1)
+					{
 						alpha = 1;
 					}
 					p2 = interval(.5 + .5 * alpha, curve.vertex[i], curve.vertex[j]);
@@ -1199,7 +1360,7 @@
 				curve.beta[j] = 0.5;
 			}
 		}
-
+		
 		/////////////////////////////////////////////////////////////////////////
 		// STAGE 5
 		// Curve optimization (Sec. 2.4).
@@ -1229,10 +1390,14 @@
 			var r:Boolean;
 			
 			// Pre-calculate convexity: +1 = right turn, -1 = left turn, 0 = corner
-			for (i = 0; i < m; i++) {
-				if(path.curves.tag[i] == POTRACE_CURVETO) {
+			for (i = 0; i < m; i++)
+			{
+				if (path.curves.tag[i] == POTRACE_CURVETO)
+				{
 					convc[i] = sign(dpara(path.curves.vertex[mod(i - 1, m)], path.curves.vertex[i], path.curves.vertex[mod(i + 1, m)]));
-				} else {
+				}
+				else
+				{
 					convc[i] = 0;
 				}
 			}
@@ -1241,9 +1406,11 @@
 			area = 0;
 			areac[0] = 0;
 			p0 = path.curves.vertex[0];
-			for (i = 0; i < m; i++) {
+			for (i = 0; i < m; i++)
+			{
 				i1 = mod(i + 1, m);
-				if (path.curves.tag[i1] == POTRACE_CURVETO) {
+				if (path.curves.tag[i1] == POTRACE_CURVETO)
+				{
 					alpha = path.curves.alpha[i1];
 					area += 0.3 * alpha * (4 - alpha) * dpara(path.curves.controlPoints[i][2], path.curves.vertex[i1], path.curves.controlPoints[i1][2]) / 2;
 					area += dpara(p0, path.curves.controlPoints[i][2], path.curves.controlPoints[i1][2]) / 2;
@@ -1265,12 +1432,15 @@
 				pen[j] = pen[j - 1];
 				len[j] = len[j - 1] + 1;
 				
-				for (i = j - 2; i >= 0; i--) {
+				for (i = j - 2; i >= 0; i--)
+				{
 					r = opti_penalty(path, i, mod(j, m), o, optTolerance, convc, areac);
-					if (r) {
+					if (r)
+					{
 						break;
 					}
-					if (len[j] > len[i] + 1 || (len[j] == len[i] + 1 && pen[j] > pen[i] + o.pen)) {
+					if (len[j] > len[i] + 1 || (len[j] == len[i] + 1 && pen[j] > pen[i] + o.pen))
+					{
 						pt[j] = i;
 						pen[j] = pen[i] + o.pen;
 						len[j] = len[i] + 1;
@@ -1280,16 +1450,18 @@
 			}
 			
 			var om:int = len[m];
-
+			
 			path.optimizedCurves = new PrivCurve(om);
 			
 			var s:Vector.<Number> = new Vector.<Number>(om);
 			var t:Vector.<Number> = new Vector.<Number>(om);
 			
 			j = m;
-			for (i = om - 1; i >= 0; i--) {
+			for (i = om - 1; i >= 0; i--)
+			{
 				var jm:int = mod(j, m);
-				if (pt[j] == j - 1) {
+				if (pt[j] == j - 1)
+				{
 					path.optimizedCurves.tag[i] = path.curves.tag[jm];
 					path.optimizedCurves.controlPoints[i][0] = path.curves.controlPoints[jm][0];
 					path.optimizedCurves.controlPoints[i][1] = path.curves.controlPoints[jm][1];
@@ -1299,7 +1471,9 @@
 					path.optimizedCurves.alpha0[i] = path.curves.alpha0[jm];
 					path.optimizedCurves.beta[i] = path.curves.beta[jm];
 					s[i] = t[i] = 1;
-				} else {
+				}
+				else
+				{
 					path.optimizedCurves.tag[i] = POTRACE_CURVETO;
 					path.optimizedCurves.controlPoints[i][0] = opt[j].c[0];
 					path.optimizedCurves.controlPoints[i][1] = opt[j].c[1];
@@ -1314,12 +1488,13 @@
 			}
 			
 			/* Calculate beta parameters */
-			for (i = 0; i < om; i++) {
+			for (i = 0; i < om; i++)
+			{
 				i1 = mod(i + 1, om);
 				path.optimizedCurves.beta[i] = s[i] / (s[i] + t[i1]);
 			}
 		}
-
+		
 		/*
 		 * Calculate best fit from i+.5 to j+.5.  Assume i<j (cyclically).
 		 * Return 0 and set badness and parameters (alpha, beta), if
@@ -1339,29 +1514,35 @@
 			var d2:Number;
 			var pt:Point;
 			
-			if(i == j) {
+			if (i == j)
+			{
 				// sanity - a full loop can never be an opticurve
 				return true;
 			}
-
+			
 			k = i;
 			i1 = mod(i + 1, m);
 			k1 = mod(k + 1, m);
 			conv = convc[k1];
-			if (conv == 0) {
+			if (conv == 0)
+			{
 				return true;
 			}
 			d = ddist(path.curves.vertex[i], path.curves.vertex[i1]);
-			for (k = k1; k != j; k = k1) {
+			for (k = k1; k != j; k = k1)
+			{
 				k1 = mod(k + 1, m);
 				k2 = mod(k + 2, m);
-				if (convc[k1] != conv) {
+				if (convc[k1] != conv)
+				{
 					return true;
 				}
-				if (sign(cprod(path.curves.vertex[i], path.curves.vertex[i1], path.curves.vertex[k1], path.curves.vertex[k2])) != conv) {
+				if (sign(cprod(path.curves.vertex[i], path.curves.vertex[i1], path.curves.vertex[k1], path.curves.vertex[k2])) != conv)
+				{
 					return true;
 				}
-				if (iprod1(path.curves.vertex[i], path.curves.vertex[i1], path.curves.vertex[k1], path.curves.vertex[k2]) < d * ddist(path.curves.vertex[k1], path.curves.vertex[k2]) * COS179) {
+				if (iprod1(path.curves.vertex[i], path.curves.vertex[i1], path.curves.vertex[k1], path.curves.vertex[k2]) < d * ddist(path.curves.vertex[k1], path.curves.vertex[k2]) * COS179)
+				{
 					return true;
 				}
 			}
@@ -1371,14 +1552,15 @@
 			var p1:Point = path.curves.vertex[mod(i + 1, m)];
 			var p2:Point = path.curves.vertex[mod(j, m)];
 			var p3:Point = path.curves.controlPoints[mod(j, m)][2];
-
+			
 			// determine its area
 			area = areac[j] - areac[i];
 			area -= dpara(path.curves.vertex[0], path.curves.controlPoints[i][2], path.curves.controlPoints[j][2]) / 2;
-			if (i >= j) {
+			if (i >= j)
+			{
 				area += areac[m];
 			}
-
+			
 			// find intersection o of p0p1 and p2p3.
 			// Let t,s such that o = interval(t, p0, p1) = interval(s, p3, p2).
 			// Let A be the area of the triangle (p0, o, p3).
@@ -1388,7 +1570,8 @@
 			var A3:Number = dpara(p0, p2, p3);
 			var A4:Number = A1 + A3 - A2;
 			
-			if (A2 == A1) {
+			if (A2 == A1)
+			{
 				// this should never happen
 				return true;
 			}
@@ -1397,7 +1580,8 @@
 			var s:Number = A2 / (A2 - A1);
 			var A:Number = A2 * t / 2.0;
 			
-			if (A == 0) {
+			if (A == 0)
+			{
 				// this should never happen
 				return true;
 			}
@@ -1416,62 +1600,73 @@
 			p2 = res.c[1];  // the proposed curve is now (p0,p1,p2,p3)
 			
 			res.pen = 0;
-
+			
 			// Calculate penalty
 			// Check tangency with edges
-			for (k = mod(i + 1, m); k != j; k = k1) {
+			for (k = mod(i + 1, m); k != j; k = k1)
+			{
 				k1 = mod(k + 1, m);
 				t = tangent(p0, p1, p2, p3, path.curves.vertex[k], path.curves.vertex[k1]);
-				if (t < -0.5) {
+				if (t < -0.5)
+				{
 					return true;
 				}
 				pt = bezier(t, p0, p1, p2, p3);
 				d = ddist(path.curves.vertex[k], path.curves.vertex[k1]);
-				if (d == 0) {
+				if (d == 0)
+				{
 					// this should never happen
 					return true;
 				}
 				d1 = dpara(path.curves.vertex[k], path.curves.vertex[k1], pt) / d;
-				if (Math.abs(d1) > optTolerance) {
+				if (Math.abs(d1) > optTolerance)
+				{
 					return true;
 				}
-				if (iprod(path.curves.vertex[k], path.curves.vertex[k1], pt) < 0 || iprod(path.curves.vertex[k1], path.curves.vertex[k], pt) < 0) {
+				if (iprod(path.curves.vertex[k], path.curves.vertex[k1], pt) < 0 || iprod(path.curves.vertex[k1], path.curves.vertex[k], pt) < 0)
+				{
 					return true;
 				}
 				res.pen += d1 * d1;
 			}
-
+			
 			// Check corners
-			for (k = i; k != j; k = k1) {
+			for (k = i; k != j; k = k1)
+			{
 				k1 = mod(k + 1, m);
 				t = tangent(p0, p1, p2, p3, path.curves.controlPoints[k][2], path.curves.controlPoints[k1][2]);
-				if (t < -0.5) {
+				if (t < -0.5)
+				{
 					return true;
 				}
 				pt = bezier(t, p0, p1, p2, p3);
 				d = ddist(path.curves.controlPoints[k][2], path.curves.controlPoints[k1][2]);
-				if (d == 0) {
+				if (d == 0)
+				{
 					// this should never happen
 					return true;
 				}
 				d1 = dpara(path.curves.controlPoints[k][2], path.curves.controlPoints[k1][2], pt) / d;
 				d2 = dpara(path.curves.controlPoints[k][2], path.curves.controlPoints[k1][2], path.curves.vertex[k1]) / d;
 				d2 *= 0.75 * path.curves.alpha[k1];
-				if (d2 < 0) {
+				if (d2 < 0)
+				{
 					d1 = -d1;
 					d2 = -d2;
 				}
-				if (d1 < d2 - optTolerance) {
+				if (d1 < d2 - optTolerance)
+				{
 					return true;
 				}
-				if (d1 < d2) {
+				if (d1 < d2)
+				{
 					res.pen += (d1 - d2) * (d1 - d2);
 				}
 			}
-
+			
 			return false;
 		}
-
+		
 		private function pathlist_to_curvearrayslist(plists:Array):Array
 		{
 			var res:Array = [];
@@ -1482,7 +1677,7 @@
 				var plist:Array = plists[j] as Array;
 				var clist:Array = [];
 				res.push(clist);
-
+				
 				for (var i:int = 0; i < plist.length; i++)
 				{
 					var p:Path = plist[i] as Path;
@@ -1493,10 +1688,13 @@
 						var C:Point = p.curves.controlPoints[k][0];
 						var D:Point = p.curves.controlPoints[k][1];
 						var E:Point = p.curves.controlPoints[k][2];
-						if (p.curves.tag[k] == POTRACE_CORNER) {
+						if (p.curves.tag[k] == POTRACE_CORNER)
+						{
 							add_curve(curves, A, A, D, D);
 							add_curve(curves, D, D, E, E);
-						} else {
+						}
+						else
+						{
 							add_curve(curves, A, C, D, E);
 						}
 						A = E;
@@ -1505,17 +1703,14 @@
 					{
 						var cl:Curve = curves[curves.length - 1] as Curve;
 						var cf:Curve = curves[0] as Curve;
-						if ((cl.kind == CurveKind.LINE) && (cf.kind == CurveKind.LINE)
-							&& iprod(cl.b, cl.a, cf.b) < 0
-							&& (Math.abs(xprodf(
-								new Point(cf.b.x - cf.a.x, cf.b.y - cf.a.y),
-								new Point(cl.a.x - cl.a.x, cl.b.y - cl.a.y))) < 0.01))
+						if ((cl.kind == CurveKind.LINE) && (cf.kind == CurveKind.LINE) && iprod(cl.b, cl.a, cf.b) < 0 && (Math.abs(xprodf(new Point(cf.b.x - cf.a.x, cf.b.y - cf.a.y), new Point(cl.a.x - cl.a.x, cl.b.y - cl.a.y))) < 0.01))
 						{
 							curves[0] = new Curve(CurveKind.LINE, cl.a, cl.a, cl.a, cf.b);
 							curves.pop();
 						}
 						var curveList:Array = [];
-						for (var ci:int = 0; ci < curves.length; ci++) {
+						for (var ci:int = 0; ci < curves.length; ci++)
+						{
 							curveList.push(curves[ci]);
 						}
 						clist.push(curveList);
@@ -1524,35 +1719,46 @@
 					var numPointInt:int = p.pt.length;
 					for (var pi:int = 0; pi < numPointInt; pi++) putPointInt(p.pt[pi]);
 				}
-			}			
+			}
 			return res;
 		}
-
+		
 		private function add_curve(curves:Array, a:Point, cpa:Point, cpb:Point, b:Point):void
 		{
 			var kind:int;
-			if ((Math.abs(xprodf(new Point(cpa.x - a.x, cpa.y - a.y), new Point(b.x - a.x, b.y - a.y))) < 0.01) &&
-				(Math.abs(xprodf(new Point(cpb.x - b.x, cpb.y - b.y), new Point(b.x - a.x, b.y - a.y))) < 0.01)) {
+			if ((Math.abs(xprodf(new Point(cpa.x - a.x, cpa.y - a.y), new Point(b.x - a.x, b.y - a.y))) < 0.01) && (Math.abs(xprodf(new Point(cpb.x - b.x, cpb.y - b.y), new Point(b.x - a.x, b.y - a.y))) < 0.01))
+			{
 				kind = CurveKind.LINE;
-			} else {
+			}
+			else
+			{
 				kind = CurveKind.BEZIER;
 			}
-			if ((kind == CurveKind.LINE)) {
-				if ((curves.length > 0) && (Curve(curves[curves.length - 1]).kind == CurveKind.LINE)) {
+			if ((kind == CurveKind.LINE))
+			{
+				if ((curves.length > 0) && (Curve(curves[curves.length - 1]).kind == CurveKind.LINE))
+				{
 					var c:Curve = curves[curves.length - 1] as Curve;
-					if ((Math.abs(xprodf(new Point(c.b.x - c.a.x, c.b.y - c.a.y), new Point(b.x - a.x, b.y - a.y))) < 0.01) && (iprod(c.b, c.a, b) < 0)) {
+					if ((Math.abs(xprodf(new Point(c.b.x - c.a.x, c.b.y - c.a.y), new Point(b.x - a.x, b.y - a.y))) < 0.01) && (iprod(c.b, c.a, b) < 0))
+					{
 						curves[curves.length - 1] = new Curve(kind, c.a, c.a, c.a, b);
-					} else {
+					}
+					else
+					{
 						curves.push(new Curve(CurveKind.LINE, a, cpa, cpb, b));
 					}
-				} else {
+				}
+				else
+				{
 					curves.push(new Curve(CurveKind.LINE, a, cpa, cpb, b));
 				}
-			} else {
+			}
+			else
+			{
 				curves.push(new Curve(CurveKind.BEZIER, a, cpa, cpb, b));
 			}
 		}
-
+		
 		/////////////////////////////////////////////////////////////////////////
 		// AUXILIARY FUNCTIONS
 		/////////////////////////////////////////////////////////////////////////
@@ -1561,7 +1767,7 @@
 		 * Return a direction that is 90 degrees counterclockwise from p2-p0,
 		 * but then restricted to one of the major wind directions (n, nw, w, etc)
 		 */
-   		private function dorth_infty(p0:Point, p2:Point):PointInt
+		private function dorth_infty(p0:Point, p2:Point):PointInt
 		{
 			return new PointInt(-sign(p2.y - p0.y), sign(p2.x - p0.x));
 		}
@@ -1569,7 +1775,8 @@
 		/*
 		 * Return (p1-p0) x (p2-p0), the area of the parallelogram
 		 */
-		private function dpara(p0:Point, p1:Point, p2:Point):Number {
+		private function dpara(p0:Point, p1:Point, p2:Point):Number
+		{
 			return (p1.x - p0.x) * (p2.y - p0.y) - (p2.x - p0.x) * (p1.y - p0.y);
 		}
 		
@@ -1582,15 +1789,18 @@
 			var r:PointInt = dorth_infty(p0, p2);
 			return r.y * (p2.x - p0.x) - r.x * (p2.y - p0.y);
 		}
-
+		
 		/*
 		 * Return true if a <= b < c < a, in a cyclic sense (mod n)
 		 */
 		private function cyclic(a:int, b:int, c:int):Boolean
 		{
-			if (a <= c) {
+			if (a <= c)
+			{
 				return (a <= b && b < c);
-			} else {
+			}
+			else
+			{
 				return (a <= b || b < c);
 			}
 		}
@@ -1607,19 +1817,23 @@
 			var l:Number;
 			var r:int = 0; // rotations from i to j
 			
-			while (j >= n) {
+			while (j >= n)
+			{
 				j -= n;
 				r++;
 			}
-			while (i >= n) {
+			while (i >= n)
+			{
 				i -= n;
 				r--;
 			}
-			while (j < 0) {
+			while (j < 0)
+			{
 				j += n;
 				r--;
 			}
-			while (i < 0) {
+			while (i < 0)
+			{
 				i += n;
 				r++;
 			}
@@ -1644,26 +1858,32 @@
 			a -= lambda2;
 			c -= lambda2;
 			
-			if (Math.abs(a) >= Math.abs(c)) {
+			if (Math.abs(a) >= Math.abs(c))
+			{
 				l = Math.sqrt(a * a + b * b);
-				if (l != 0) {
+				if (l != 0)
+				{
 					dir.x = -b / l;
 					dir.y = a / l;
 				}
-			} else {
+			}
+			else
+			{
 				l = Math.sqrt(c * c + b * b);
-				if (l != 0) {
+				if (l != 0)
+				{
 					dir.x = -c / l;
 					dir.y = b / l;
 				}
 			}
-			if (l == 0) {
+			if (l == 0)
+			{
 				// sometimes this can happen when k=4:
 				// the two eigenvalues coincide
 				dir.x = dir.y = 0;
 			}
 		}
-
+		
 		/*
 		 * Apply quadratic form Q to vector w = (w.x, w.y)
 		 */
@@ -1674,14 +1894,16 @@
 			v[0] = w.x;
 			v[1] = w.y;
 			v[2] = 1;
-			for (var i:int = 0; i < 3; i++) {
-				for (var j:int = 0; j < 3; j++) {
+			for (var i:int = 0; i < 3; i++)
+			{
+				for (var j:int = 0; j < 3; j++)
+				{
 					sum += v[i] * Q[i][j] * v[j];
 				}
 			}
 			return sum;
 		}
-
+		
 		/*
 		 * Calculate point of a bezier curve
 		 */
@@ -1689,19 +1911,19 @@
 		{
 			var s:Number = 1 - t;
 			var res:Point = new Point();
-
+			
 			// Note: a good optimizing compiler (such as gcc-3) reduces the
 			// following to 16 multiplications, using common subexpression
 			// elimination.
 			
 			// Note [cw]: Flash: fudeu! ;)
-
+			
 			res.x = s * s * s * p0.x + 3 * (s * s * t) * p1.x + 3 * (t * t * s) * p2.x + t * t * t * p3.x;
 			res.y = s * s * s * p0.y + 3 * (s * s * t) * p1.y + 3 * (t * t * s) * p2.y + t * t * t * p3.y;
-
+			
 			return res;
 		}
-
+		
 		/*
 		 * Calculate the point t in [0..1] on the (convex) bezier curve
 		 * (p0,p1,p2,p3) which is tangent to q1-q0. Return -1.0 if there is no
@@ -1718,27 +1940,33 @@
 			var a:Number = A - 2 * B + C;
 			var b:Number = -2 * A + 2 * B;
 			var c:Number = A;
-
+			
 			var d:Number = b * b - 4 * a * c;
-
-			if (a == 0 || d < 0) {
+			
+			if (a == 0 || d < 0)
+			{
 				return -1;
 			}
-
+			
 			var s:Number = Math.sqrt(d);
-
+			
 			var r1:Number = (-b + s) / (2 * a);
 			var r2:Number = (-b - s) / (2 * a);
-
-			if (r1 >= 0 && r1 <= 1) {
+			
+			if (r1 >= 0 && r1 <= 1)
+			{
 				return r1;
-			} else if (r2 >= 0 && r2 <= 1) {
+			}
+			else if (r2 >= 0 && r2 <= 1)
+			{
 				return r2;
-			} else {
+			}
+			else
+			{
 				return -1;
 			}
 		}
-
+		
 		/*
 		 * Calculate distance between two points
 		 */
@@ -1772,7 +2000,7 @@
 		{
 			return (p1.x - p0.x) * (p3.y - p2.y) - (p3.x - p2.x) * (p1.y - p0.y);
 		}
-
+		
 		/*
 		 * Calculate (p1 - p0) * (p2 - p0)
 		 */
@@ -1780,7 +2008,7 @@
 		{
 			return (p1.x - p0.x) * (p2.x - p0.x) + (p1.y - p0.y) * (p2.y - p0.y);
 		}
-
+		
 		/*
 		 * Calculate (p1 - p0) * (p3 - p2)
 		 */
@@ -1788,7 +2016,7 @@
 		{
 			return (p1.x - p0.x) * (p3.x - p2.x) + (p1.y - p0.y) * (p3.y - p2.y);
 		}
-
+		
 		private function interval(lambda:Number, a:Point, b:Point):Point
 		{
 			return new Point(a.x + lambda * (b.x - a.x), a.y + lambda * (b.y - a.y));
@@ -1819,22 +2047,42 @@
 			return (x > 0) ? 1 : ((x < 0) ? -1 : 0);
 		}
 		
+		/** Retrieves a Point instance from the pool. */
+		public static function getPoint(x:Number = 0, y:Number = 0):Point
+		{
+			if (sPoints.length == 0) return new Point(x, y);
+			else
+			{
+				var point:Point = sPoints.pop();
+				point.x = x;
+				point.y = y;
+				return point;
+			}
+		}
+		
+		/** Stores a Point instance in the pool. */
+		public static function putPoint(point:Point):void
+		{
+			if (point) sPoints[sPoints.length] = point;
+		}
+		
 		/** Retrieves a PointInt instance from the pool. */
-        public static function getPointInt(x:int = 0, y:int = 0):PointInt
-        {
+		public static function getPointInt(x:int = 0, y:int = 0):PointInt
+		{
 			if (sPointInts.length == 0) return new PointInt(x, y);
-            else
-            {
-                var point:PointInt = sPointInts.pop();
-                point.x = x; point.y = y;				
-                return point;
-            }
-        }
-
-        /** Stores a PointInt instance in the pool. */
-        public static function putPointInt(point:PointInt):void
-        {
-            if (point) sPointInts[sPointInts.length] = point;
-        }
+			else
+			{
+				var point:PointInt = sPointInts.pop();
+				point.x = x;
+				point.y = y;
+				return point;
+			}
+		}
+		
+		/** Stores a PointInt instance in the pool. */
+		public static function putPointInt(point:PointInt):void
+		{
+			if (point) sPointInts[sPointInts.length] = point;
+		}
 	}
 }
